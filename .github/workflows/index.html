@@ -1,13 +1,424 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Uni-Place Connect — Material UI</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  </head>
-  <body>
-    <div id="root"></div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-  </body>
-</html>
+// App.js - Single-file Uni-Place demo (All components, context, hooks, styles are here)
+// Requirements: react, react-dom, react-router-dom, react-icons
+import React, { useEffect, useState, createContext, useContext } from "react";
+import { Routes, Route, BrowserRouter, NavLink, Navigate, useNavigate } from "react-router-dom";
+import { FiHome, FiBriefcase, FiFileText, FiUsers } from "react-icons/fi";
+
+/*
+  Single-file structure:
+  - Theme/CSS injected on mount
+  - AuthContext for user state persisted to localStorage
+  - useLocalStorage hook
+  - Pages: Login, Dashboard, Jobs, Applications, Reports
+  - Components: Sidebar, Topbar, JobCard
+  - All data stored in localStorage: uniplace_jobs, uniplace_apps
+*/
+
+// ---------- Styles (injected) ----------
+const styles = `
+:root{
+  --md-surface:#fff; --md-bg:#f3f6fb; --md-primary:#1766d1; --muted:#6b7280;
+  --card-radius:12px;
+}
+*{box-sizing:border-box}
+body{ margin:0; font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; background:var(--md-bg); color:#0f172a; }
+.app-shell{ display:flex; min-height:100vh; }
+.sidebar{ width:260px; padding:28px; background: linear-gradient(180deg,var(--md-primary),#0f57b1); color:#fff; display:flex; flex-direction:column; gap:16px; }
+.logo{ display:flex; align-items:center; gap:12px; }
+.logo-circle{ width:46px; height:46px; border-radius:10px; background:rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; }
+.nav-link.custom{ color: rgba(255,255,255,0.92); padding:10px; border-radius:10px; display:flex; align-items:center; gap:10px; text-decoration:none; margin-bottom:6px; }
+.nav-link.custom.active{ background: rgba(255,255,255,0.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02); }
+.main{ flex:1; padding:28px; }
+.topbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
+.card-elev{ background:var(--md-surface); border-radius:var(--card-radius); padding:16px; box-shadow:0 6px 18px rgba(16,24,40,0.06); }
+.kpi{ background:linear-gradient(180deg,#fff,#fbfdff); padding:14px; border-radius:10px; box-shadow:0 8px 24px rgba(16,24,40,0.06); }
+.job-card{ border-radius:12px; padding:14px; background:linear-gradient(180deg,#fff,#fcfdff); transition:transform .18s, box-shadow .18s; box-shadow:0 6px 12px rgba(20,30,60,0.06); }
+.job-card:hover{ transform:translateY(-6px); box-shadow:0 18px 36px rgba(20,30,60,0.12); }
+.small-muted{ color:var(--muted); font-size:13px; }
+.container-grid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
+.form-row{ display:flex; gap:8px; }
+input.form, textarea.form, select.form { width:100%; padding:8px 10px; border-radius:8px; border:1px solid #e6eefb; outline:none; }
+.btn { padding:8px 12px; border-radius:8px; border:none; cursor:pointer; }
+.btn-primary{ background:var(--md-primary); color:white; }
+.btn-outline{ background:transparent; border:1px solid rgba(0,0,0,0.08); }
+.list-group-item{ background:transparent; border-radius:10px; padding:12px; margin-bottom:8px; box-shadow:0 6px 12px rgba(16,24,40,0.04); }
+@media(max-width:900px){ .sidebar{ display:none; } .app-shell{ flex-direction:column; } }
+`;
+
+// inject once
+if (typeof document !== "undefined" && !document.getElementById("uniplace-styles")) {
+  const s = document.createElement("style");
+  s.id = "uniplace-styles";
+  s.innerHTML = styles;
+  document.head.appendChild(s);
+}
+
+// ---------- Helpers ----------
+function uid(prefix = "") {
+  return prefix + Date.now() + Math.floor(Math.random() * 900);
+}
+
+// ---------- useLocalStorage hook ----------
+function useLocalStorage(key, initial) {
+  const [state, setState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : initial;
+    } catch (e) {
+      return initial;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(state));
+    } catch (e) {}
+  }, [key, state]);
+  return [state, setState];
+}
+
+// ---------- AuthContext ----------
+const AuthContext = createContext();
+function AuthProvider({ children }) {
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("uniplace_auth")) || null;
+    } catch (e) {
+      return null;
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem("uniplace_auth", JSON.stringify(user || null));
+  }, [user]);
+  const login = (u) => setUser(u);
+  const logout = () => { setUser(null); localStorage.removeItem("uniplace_auth"); };
+  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
+}
+function useAuth() {
+  return useContext(AuthContext);
+}
+
+// ---------- Components ----------
+function Sidebar() {
+  const { user, logout } = useAuth();
+  return (
+    <aside className="sidebar" aria-label="Sidebar navigation">
+      <div className="logo" role="banner">
+        <div className="logo-circle">U</div>
+        <div>
+          <div style={{fontWeight:700}}>Uni-Place</div>
+          <div style={{fontSize:12, opacity:0.9}}>Placement Connect</div>
+        </div>
+      </div>
+
+      <nav aria-label="Main">
+        <NavLink to="/" end className={({isActive})=> "nav-link custom" + (isActive ? " active": "")}><FiHome/> Dashboard</NavLink>
+        <NavLink to="/jobs" className={({isActive})=> "nav-link custom" + (isActive ? " active": "")}><FiBriefcase/> Jobs</NavLink>
+        <NavLink to="/applications" className={({isActive})=> "nav-link custom" + (isActive ? " active": "")}><FiFileText/> Applications</NavLink>
+        {user?.role === "placement_officer" && <NavLink to="/reports" className={({isActive})=> "nav-link custom" + (isActive ? " active": "")}><FiUsers/> Reports</NavLink>}
+      </nav>
+
+      <div style={{marginTop:"auto"}}>
+        <div style={{fontSize:12, opacity:0.9}}>Signed in as</div>
+        <div style={{fontWeight:700}}>{user?.name || "Guest"}</div>
+        <div className="small-muted">Role: {user?.role || "Guest"}</div>
+        <div style={{marginTop:10}}>
+          <button className="btn btn-outline" onClick={logout}>Logout</button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function Topbar() {
+  const { user } = useAuth();
+  return (
+    <div className="topbar" role="region" aria-label="Topbar">
+      <div>
+        <h3 style={{margin:0}}>Welcome{user ? ", " + user.name : ""}</h3>
+        <div className="small-muted">Role: {user?.role || "Guest"}</div>
+      </div>
+      <div style={{display:"flex",gap:12,alignItems:"center"}}>
+        <div className="small-muted">Profile</div>
+        <div style={{width:36,height:36,borderRadius:8,background:"#eef2ff",display:"flex",alignItems:"center",justifyContent:"center"}}>U</div>
+      </div>
+    </div>
+  );
+}
+
+function JobCard({ job, onApply, role }) {
+  return (
+    <div className="job-card" role="article" aria-label={Job ${job.title}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontWeight:700}}>{job.title}</div>
+          <div className="small-muted">{job.description}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{marginBottom:8}}><span style={{background:"var(--md-primary)",color:"#fff",padding:"6px 10px",borderRadius:8,fontWeight:600}}>{job.salary || "N/A"}</span></div>
+          {role === "student" && <button className="btn btn-primary" onClick={()=>onApply(job.id)}>Apply</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Pages ----------
+function LoginPage() {
+  const { login } = useAuth();
+  const nav = useNavigate();
+  const [form, setForm] = useState({ name:"", email:"", role:"student" });
+
+  function change(e) {
+    setForm({...form, [e.target.name]: e.target.value});
+  }
+  function submit(e) {
+    e.preventDefault();
+    if (!form.email) return alert("Enter email");
+    const u = { id: uid("u"), name: form.name || form.email.split("@")[0], email: form.email, role: form.role };
+    login(u);
+    nav("/");
+  }
+
+  return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh"}}>
+      <div className="card-elev" style={{width:460}}>
+        <div style={{display:"flex",gap:12,alignItems:"center"}}>
+          <div style={{width:56,height:56,borderRadius:12,background:"#eef2ff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>U</div>
+          <div>
+            <h4 style={{margin:0}}>Uni-Place Connect</h4>
+            <div className="small-muted">Sign in to continue (demo)</div>
+          </div>
+        </div>
+        <form onSubmit={submit} style={{marginTop:16}}>
+          <div style={{marginBottom:8}}>
+            <input name="name" className="form" placeholder="Full name (optional)" value={form.name} onChange={change} />
+          </div>
+          <div style={{marginBottom:8}}>
+            <input name="email" className="form" placeholder="Email" value={form.email} onChange={change} required />
+          </div>
+          <div style={{display:"flex",gap:8, marginBottom:8}}>
+            <select name="role" className="form" value={form.role} onChange={change}>
+              <option value="student">Student</option>
+              <option value="company">Company</option>
+              <option value="placement_officer">Placement Officer</option>
+            </select>
+            <button className="btn btn-primary" style={{minWidth:100}}>Sign In</button>
+          </div>
+          <div className="small-muted">Demo only — data stored in your browser</div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function DashboardPage() {
+  const jobs = JSON.parse(localStorage.getItem("uniplace_jobs") || "[]");
+  const apps = JSON.parse(localStorage.getItem("uniplace_apps") || "[]");
+  return (
+    <div>
+      <div className="card-elev" style={{marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <h5 style={{margin:0}}>Placement Summary</h5>
+            <div className="small-muted">Overview of campus placement activity</div>
+          </div>
+          <div style={{display:"flex",gap:12}}>
+            <div className="kpi"><div className="small-muted">Jobs</div><div style={{fontWeight:700,fontSize:18}}>{jobs.length}</div></div>
+            <div className="kpi"><div className="small-muted">Applications</div><div style={{fontWeight:700,fontSize:18}}>{apps.length}</div></div>
+            <div className="kpi"><div className="small-muted">Placed</div><div style={{fontWeight:700,fontSize:18}}>{apps.filter(a=>a.status==="Placed").length}</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:16}}>
+        <div className="card-elev p-3">
+          <h6 style={{marginTop:0}}>Recent Activity</h6>
+          <div className="small-muted">No recent activity in demo</div>
+        </div>
+        <div className="card-elev p-3">
+          <h6 style={{marginTop:0}}>Analytics</h6>
+          <div className="small-muted">Charts can be added (optional)</div>
+        </div>
+        <div className="card-elev p-3">
+          <h6 style={{marginTop:0}}>Notifications</h6>
+          <div className="small-muted">You will see notifications here</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function JobsPage() {
+  const { user } = useAuth();
+  const [jobs, setJobs] = useLocalStorage("uniplace_jobs", []);
+  const [form, setForm] = useState({ title:"", description:"", salary:"" });
+
+  function change(e){ setForm({...form, [e.target.name]: e.target.value}); }
+  function post(e){
+    e.preventDefault();
+    if (user.role !== "company") return alert("Only companies can post jobs");
+    const j = { id: uid("j"), companyId: user.id, ...form, createdAt: new Date().toISOString() };
+    setJobs(prev => [j, ...prev]);
+    setForm({ title:"", description:"", salary:"" });
+  }
+  function apply(id){
+    if (user.role !== "student") return alert("Only students can apply");
+    const all = JSON.parse(localStorage.getItem("uniplace_apps") || "[]");
+    if (all.find(a=>a.jobId === id && a.studentId === user.id)) return alert("Already applied");
+    const app = { id: uid("a"), jobId: id, studentId: user.id, status: "Applied", createdAt: new Date().toISOString() };
+    all.push(app);
+    localStorage.setItem("uniplace_apps", JSON.stringify(all));
+    alert("Applied successfully");
+  }
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <h4 style={{margin:0}}>Jobs</h4>
+        <div className="small-muted">Total: {jobs.length}</div>
+      </div>
+
+      {user.role === "company" && (
+        <form className="card-elev" onSubmit={post} style={{marginBottom:12}}>
+          <div style={{display:"flex",gap:8, marginBottom:8}}>
+            <input name="title" className="form" placeholder="Job title" value={form.title} onChange={change} required />
+            <input name="salary" className="form" placeholder="Salary/stipend" value={form.salary} onChange={change} />
+          </div>
+          <div style={{marginBottom:8}}>
+            <input name="description" className="form" placeholder="Short description" value={form.description} onChange={change} />
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end"}}>
+            <button className="btn btn-primary">Post Job</button>
+          </div>
+        </form>
+      )}
+
+      <div className="container-grid">
+        {jobs.map(j => <JobCard key={j.id} job={j} role={user.role} onApply={apply} />)}
+        {jobs.length === 0 && <div className="card-elev">No jobs yet. Companies can post jobs using the form above.</div>}
+      </div>
+    </div>
+  );
+}
+
+function ApplicationsPage() {
+  const { user } = useAuth();
+  const [apps, setApps] = useState([]);
+  useEffect(()=> {
+    setApps(JSON.parse(localStorage.getItem("uniplace_apps") || "[]"));
+  }, []);
+
+  function update(id, status) {
+    const all = JSON.parse(localStorage.getItem("uniplace_apps") || "[]");
+    const app = all.find(a=>a.id===id);
+    if (!app) return;
+    if (user.role === "company") {
+      const jobs = JSON.parse(localStorage.getItem("uniplace_jobs") || "[]");
+      const job = jobs.find(j => j.id === app.jobId);
+      if (!job || job.companyId !== user.id) return alert("Forbidden");
+    }
+    app.status = status;
+    localStorage.setItem("uniplace_apps", JSON.stringify(all));
+    setApps(all);
+  }
+
+  const visible = apps.filter(a => {
+    if (user.role === "student") return a.studentId === user.id;
+    if (user.role === "company") {
+      const jobs = JSON.parse(localStorage.getItem("uniplace_jobs") || "[]");
+      const my = jobs.filter(j=>j.companyId===user.id).map(j=>j.id);
+      return my.includes(a.jobId);
+    }
+    return true; // placement officer sees all
+  });
+
+  return (
+    <div>
+      <h4>Applications</h4>
+      {visible.length === 0 && <div className="card-elev" style={{marginTop:8}}>No applications.</div>}
+      <div style={{marginTop:8}}>
+        {visible.map(a => (
+          <div key={a.id} className="list-group-item">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div><strong>ID:</strong> {a.id}</div>
+                <div><strong>Job:</strong> {a.jobId}</div>
+                <div><strong>Student:</strong> {a.studentId}</div>
+                <div className="small-muted"><strong>Status:</strong> {a.status}</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                {(user.role === "company" || user.role === "placement_officer") && <button className="btn btn-primary" onClick={()=>update(a.id, "Interview")}>Set Interview</button>}
+                {(user.role === "company" || user.role === "placement_officer") && <button className="btn btn-outline" onClick={()=>update(a.id, "Placed")}>Mark Placed</button>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportsPage() {
+  const jobs = JSON.parse(localStorage.getItem("uniplace_jobs") || "[]");
+  const apps = JSON.parse(localStorage.getItem("uniplace_apps") || "[]");
+  return (
+    <div>
+      <h4>Reports</h4>
+      <div className="card-elev" style={{marginTop:8}}>
+        <div><strong>Total Jobs:</strong> {jobs.length}</div>
+        <div><strong>Total Applications:</strong> {apps.length}</div>
+        <div><strong>Placed:</strong> {apps.filter(a=>a.status==="Placed").length}</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- App Root ----------
+function AppShell() {
+  const { user } = useAuth();
+  const nav = useNavigate();
+  useEffect(()=> {
+    // seed demo content first time
+    if (!localStorage.getItem("uniplace_seeded")) {
+      localStorage.setItem("uniplace_jobs", JSON.stringify([
+        { id: "j-demo-1", companyId: "u-demo-c1", title: "Software Intern", description: "3 month internship", salary: "10k/month" },
+        { id: "j-demo-2", companyId: "u-demo-c2", title: "Frontend Developer", description: "6 month contract", salary: "25k" }
+      ]));
+      localStorage.setItem("uniplace_apps", JSON.stringify([]));
+      localStorage.setItem("uniplace_seeded", "1");
+    }
+  }, []);
+
+  if (!user) return <Navigate to="/login" replace />;
+
+  return (
+    <div className="app-shell">
+      <Sidebar />
+      <main className="main" role="main">
+        <Topbar />
+        <div style={{maxWidth:1100}}>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/jobs" element={<JobsPage />} />
+            <Route path="/applications" element={<ApplicationsPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/*" element={<AppShell />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
