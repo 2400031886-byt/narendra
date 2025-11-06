@@ -1,0 +1,17 @@
+/* Dark cinematic base */
+:root{
+  --bg:#0E0E10;
+  --paper:#121218;
+  --neon-violet:#7A2EFF;
+  --electric-blue:#00BFFF;
+  --text:#E5E5E5;
+}
+html,body,#root{height:100%; margin:0; font-family: Inter, Poppins, Arial, sans-serif; background:linear-gradient(180deg,var(--bg),#07070a);}
+a{color:inherit}
+.app-shell{display:flex; min-height:100vh;}
+.main-content{flex:1; padding:20px;}
+.glass{background:rgba(255,255,255,0.03); backdrop-filter:blur(8px); border-radius:12px; border:1px solid rgba(122,46,255,0.08); padding:16px;}
+.neon-btn{background:linear-gradient(90deg,var(--neon-violet),var(--electric-blue)); color:white; border:none; padding:8px 14px; border-radius:8px; cursor:pointer;}
+.header-title{color:#fff; text-shadow:0 4px 16px rgba(122,46,255,0.14); font-weight:700;}
+.card-grid{display:grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap:16px;}
+.job-card{padding:12px; border-radius:10px;}
