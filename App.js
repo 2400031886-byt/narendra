@@ -1,12 +1,12 @@
 import React, {useState} from 'react';
 import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
 import { Routes, Route } from 'react-router-dom';
-import Topbar from './workflows/Topbar';
-import Sidebar from './workflows/Sidebar';
-import Dashboard from './workflows/Dashboard';
-import Jobs from './workflows/Jobs';
-import Applications from './workflows/Applications';
-import Login from './workflows/Login';
+import Topbar from './.github/Topbar';
+import Sidebar from './.github/Sidebar';
+import Dashboard from './.github/Dashboard';
+import Jobs from './.github/Jobs';
+import Applications from './.github/Applications';
+import Login from './github/Login';
 
 const theme = createTheme({
   palette: {
