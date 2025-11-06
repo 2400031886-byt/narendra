@@ -1,424 +1,506 @@
-// App.js - Single-file Uni-Place demo (All components, context, hooks, styles are here)
-// Requirements: react, react-dom, react-router-dom, react-icons
-import React, { useEffect, useState, createContext, useContext } from "react";
-import { Routes, Route, BrowserRouter, NavLink, Navigate, useNavigate } from "react-router-dom";
-import { FiHome, FiBriefcase, FiFileText, FiUsers } from "react-icons/fi";
-
-/*
-  Single-file structure:
-  - Theme/CSS injected on mount
-  - AuthContext for user state persisted to localStorage
-  - useLocalStorage hook
-  - Pages: Login, Dashboard, Jobs, Applications, Reports
-  - Components: Sidebar, Topbar, JobCard
-  - All data stored in localStorage: uniplace_jobs, uniplace_apps
-*/
-
-// ---------- Styles (injected) ----------
-const styles = `
-:root{
-  --md-surface:#fff; --md-bg:#f3f6fb; --md-primary:#1766d1; --muted:#6b7280;
-  --card-radius:12px;
-}
-*{box-sizing:border-box}
-body{ margin:0; font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; background:var(--md-bg); color:#0f172a; }
-.app-shell{ display:flex; min-height:100vh; }
-.sidebar{ width:260px; padding:28px; background: linear-gradient(180deg,var(--md-primary),#0f57b1); color:#fff; display:flex; flex-direction:column; gap:16px; }
-.logo{ display:flex; align-items:center; gap:12px; }
-.logo-circle{ width:46px; height:46px; border-radius:10px; background:rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; }
-.nav-link.custom{ color: rgba(255,255,255,0.92); padding:10px; border-radius:10px; display:flex; align-items:center; gap:10px; text-decoration:none; margin-bottom:6px; }
-.nav-link.custom.active{ background: rgba(255,255,255,0.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02); }
-.main{ flex:1; padding:28px; }
-.topbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
-.card-elev{ background:var(--md-surface); border-radius:var(--card-radius); padding:16px; box-shadow:0 6px 18px rgba(16,24,40,0.06); }
-.kpi{ background:linear-gradient(180deg,#fff,#fbfdff); padding:14px; border-radius:10px; box-shadow:0 8px 24px rgba(16,24,40,0.06); }
-.job-card{ border-radius:12px; padding:14px; background:linear-gradient(180deg,#fff,#fcfdff); transition:transform .18s, box-shadow .18s; box-shadow:0 6px 12px rgba(20,30,60,0.06); }
-.job-card:hover{ transform:translateY(-6px); box-shadow:0 18px 36px rgba(20,30,60,0.12); }
-.small-muted{ color:var(--muted); font-size:13px; }
-.container-grid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
-.form-row{ display:flex; gap:8px; }
-input.form, textarea.form, select.form { width:100%; padding:8px 10px; border-radius:8px; border:1px solid #e6eefb; outline:none; }
-.btn { padding:8px 12px; border-radius:8px; border:none; cursor:pointer; }
-.btn-primary{ background:var(--md-primary); color:white; }
-.btn-outline{ background:transparent; border:1px solid rgba(0,0,0,0.08); }
-.list-group-item{ background:transparent; border-radius:10px; padding:12px; margin-bottom:8px; box-shadow:0 6px 12px rgba(16,24,40,0.04); }
-@media(max-width:900px){ .sidebar{ display:none; } .app-shell{ flex-direction:column; } }
-`;
-
-// inject once
-if (typeof document !== "undefined" && !document.getElementById("uniplace-styles")) {
-  const s = document.createElement("style");
-  s.id = "uniplace-styles";
-  s.innerHTML = styles;
-  document.head.appendChild(s);
-}
-
-// ---------- Helpers ----------
-function uid(prefix = "") {
-  return prefix + Date.now() + Math.floor(Math.random() * 900);
-}
-
-// ---------- useLocalStorage hook ----------
-function useLocalStorage(key, initial) {
-  const [state, setState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : initial;
-    } catch (e) {
-      return initial;
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Uni-Place Connect — Demo (single HTML)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- Bootstrap CDN for quick components -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root{
+      --md-bg: #f3f6fb;
+      --md-primary: #1766d1;
+      --muted: #6b7280;
+      --card-radius: 12px;
     }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(state));
-    } catch (e) {}
-  }, [key, state]);
-  return [state, setState];
-}
-
-// ---------- AuthContext ----------
-const AuthContext = createContext();
-function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("uniplace_auth")) || null;
-    } catch (e) {
-      return null;
-    }
-  });
-  useEffect(() => {
-    localStorage.setItem("uniplace_auth", JSON.stringify(user || null));
-  }, [user]);
-  const login = (u) => setUser(u);
-  const logout = () => { setUser(null); localStorage.removeItem("uniplace_auth"); };
-  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
-}
-function useAuth() {
-  return useContext(AuthContext);
-}
-
-// ---------- Components ----------
-function Sidebar() {
-  const { user, logout } = useAuth();
-  return (
-    <aside className="sidebar" aria-label="Sidebar navigation">
-      <div className="logo" role="banner">
-        <div className="logo-circle">U</div>
-        <div>
-          <div style={{fontWeight:700}}>Uni-Place</div>
-          <div style={{fontSize:12, opacity:0.9}}>Placement Connect</div>
-        </div>
-      </div>
-
-      <nav aria-label="Main">
-        <NavLink to="/" end className={({isActive})=> "nav-link custom" + (isActive ? " active": "")}><FiHome/> Dashboard</NavLink>
-        <NavLink to="/jobs" className={({isActive})=> "nav-link custom" + (isActive ? " active": "")}><FiBriefcase/> Jobs</NavLink>
-        <NavLink to="/applications" className={({isActive})=> "nav-link custom" + (isActive ? " active": "")}><FiFileText/> Applications</NavLink>
-        {user?.role === "placement_officer" && <NavLink to="/reports" className={({isActive})=> "nav-link custom" + (isActive ? " active": "")}><FiUsers/> Reports</NavLink>}
-      </nav>
-
-      <div style={{marginTop:"auto"}}>
-        <div style={{fontSize:12, opacity:0.9}}>Signed in as</div>
-        <div style={{fontWeight:700}}>{user?.name || "Guest"}</div>
-        <div className="small-muted">Role: {user?.role || "Guest"}</div>
-        <div style={{marginTop:10}}>
-          <button className="btn btn-outline" onClick={logout}>Logout</button>
-        </div>
-      </div>
-    </aside>
-  );
-}
-
-function Topbar() {
-  const { user } = useAuth();
-  return (
-    <div className="topbar" role="region" aria-label="Topbar">
-      <div>
-        <h3 style={{margin:0}}>Welcome{user ? ", " + user.name : ""}</h3>
-        <div className="small-muted">Role: {user?.role || "Guest"}</div>
-      </div>
-      <div style={{display:"flex",gap:12,alignItems:"center"}}>
-        <div className="small-muted">Profile</div>
-        <div style={{width:36,height:36,borderRadius:8,background:"#eef2ff",display:"flex",alignItems:"center",justifyContent:"center"}}>U</div>
-      </div>
-    </div>
-  );
-}
-
-function JobCard({ job, onApply, role }) {
-  return (
-    <div className="job-card" role="article" aria-label={Job ${job.title}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <div style={{fontWeight:700}}>{job.title}</div>
-          <div className="small-muted">{job.description}</div>
-        </div>
-        <div style={{textAlign:"right"}}>
-          <div style={{marginBottom:8}}><span style={{background:"var(--md-primary)",color:"#fff",padding:"6px 10px",borderRadius:8,fontWeight:600}}>{job.salary || "N/A"}</span></div>
-          {role === "student" && <button className="btn btn-primary" onClick={()=>onApply(job.id)}>Apply</button>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------- Pages ----------
-function LoginPage() {
-  const { login } = useAuth();
-  const nav = useNavigate();
-  const [form, setForm] = useState({ name:"", email:"", role:"student" });
-
-  function change(e) {
-    setForm({...form, [e.target.name]: e.target.value});
-  }
-  function submit(e) {
-    e.preventDefault();
-    if (!form.email) return alert("Enter email");
-    const u = { id: uid("u"), name: form.name || form.email.split("@")[0], email: form.email, role: form.role };
-    login(u);
-    nav("/");
-  }
-
-  return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh"}}>
-      <div className="card-elev" style={{width:460}}>
-        <div style={{display:"flex",gap:12,alignItems:"center"}}>
-          <div style={{width:56,height:56,borderRadius:12,background:"#eef2ff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>U</div>
+    body{ margin:0; font-family: Inter, system-ui, -apple-system, Roboto, Arial; background:var(--md-bg); color:#0f172a; }
+    .app-shell{ display:flex; min-height:100vh; }
+    .sidebar{ width:260px; padding:28px; background: linear-gradient(180deg,var(--md-primary),#0f57b1); color:#fff; display:flex; flex-direction:column; gap:16px; }
+    .logo{ display:flex; align-items:center; gap:12px; }
+    .logo-circle{ width:46px; height:46px; border-radius:10px; background:rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; }
+    .nav-link.custom{ color: rgba(255,255,255,0.92); padding:10px; border-radius:10px; display:block; text-decoration:none; margin-bottom:6px; }
+    .nav-link.custom.active{ background: rgba(255,255,255,0.08); }
+    .main{ flex:1; padding:28px; }
+    .topbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
+    .card-elev{ background:#fff; border-radius:var(--card-radius); padding:16px; box-shadow:0 6px 18px rgba(16,24,40,0.06); }
+    .kpi{ background:linear-gradient(180deg,#fff,#fbfdff); padding:14px; border-radius:10px; box-shadow:0 8px 24px rgba(16,24,40,0.06); }
+    .job-card{ border-radius:12px; padding:14px; background:linear-gradient(180deg,#fff,#fcfdff); transition:transform .18s, box-shadow .18s; box-shadow:0 6px 12px rgba(20,30,60,0.06); margin-bottom:12px;}
+    .job-card:hover{ transform:translateY(-6px); box-shadow:0 18px 36px rgba(20,30,60,0.12); }
+    .small-muted{ color:var(--muted); font-size:13px; }
+    .container-grid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+    .list-group-item-custom{ border-radius:10px; padding:12px; margin-bottom:8px; background:transparent; box-shadow:0 6px 12px rgba(16,24,40,0.04); }
+    @media (max-width:900px){ .sidebar{ display:none; } .app-shell{ flex-direction:column; } .mobile-only{ display:block; } }
+    .hidden{ display:none !important; }
+    /* small helper */
+    .muted{ color:#6b7280; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Login screen -->
+    <div id="login-screen" class="d-flex align-items-center justify-content-center vh-100">
+      <div style="width:420px;" class="card-elev p-4">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="logo-circle">U</div>
           <div>
-            <h4 style={{margin:0}}>Uni-Place Connect</h4>
-            <div className="small-muted">Sign in to continue (demo)</div>
+            <h4 class="mb-0">Uni-Place Connect</h4>
+            <div class="small-muted">Sign in to continue (demo)</div>
           </div>
         </div>
-        <form onSubmit={submit} style={{marginTop:16}}>
-          <div style={{marginBottom:8}}>
-            <input name="name" className="form" placeholder="Full name (optional)" value={form.name} onChange={change} />
-          </div>
-          <div style={{marginBottom:8}}>
-            <input name="email" className="form" placeholder="Email" value={form.email} onChange={change} required />
-          </div>
-          <div style={{display:"flex",gap:8, marginBottom:8}}>
-            <select name="role" className="form" value={form.role} onChange={change}>
+        <form id="login-form" class="mt-2">
+          <div class="mb-2"><input id="login-name" class="form-control" placeholder="Full name (optional)"></div>
+          <div class="mb-2"><input id="login-email" type="email" class="form-control" placeholder="Email" required></div>
+          <div class="mb-2 d-flex gap-2">
+            <select id="login-role" class="form-select">
               <option value="student">Student</option>
               <option value="company">Company</option>
               <option value="placement_officer">Placement Officer</option>
             </select>
-            <button className="btn btn-primary" style={{minWidth:100}}>Sign In</button>
+            <button class="btn btn-primary" type="submit">Sign In</button>
           </div>
-          <div className="small-muted">Demo only — data stored in your browser</div>
+          <div class="small-muted">Demo only — data stored locally in your browser.</div>
         </form>
       </div>
     </div>
-  );
-}
 
-function DashboardPage() {
-  const jobs = JSON.parse(localStorage.getItem("uniplace_jobs") || "[]");
-  const apps = JSON.parse(localStorage.getItem("uniplace_apps") || "[]");
-  return (
-    <div>
-      <div className="card-elev" style={{marginBottom:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+    <!-- App Shell -->
+    <div id="app-shell" class="app-shell hidden" role="application">
+      <!-- Sidebar -->
+      <aside class="sidebar" role="navigation">
+        <div class="logo">
+          <div class="logo-circle">U</div>
           <div>
-            <h5 style={{margin:0}}>Placement Summary</h5>
-            <div className="small-muted">Overview of campus placement activity</div>
-          </div>
-          <div style={{display:"flex",gap:12}}>
-            <div className="kpi"><div className="small-muted">Jobs</div><div style={{fontWeight:700,fontSize:18}}>{jobs.length}</div></div>
-            <div className="kpi"><div className="small-muted">Applications</div><div style={{fontWeight:700,fontSize:18}}>{apps.length}</div></div>
-            <div className="kpi"><div className="small-muted">Placed</div><div style={{fontWeight:700,fontSize:18}}>{apps.filter(a=>a.status==="Placed").length}</div></div>
+            <div style="font-weight:700">Uni-Place</div>
+            <div style="font-size:12px; opacity:0.9">Placement Connect</div>
           </div>
         </div>
-      </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:16}}>
-        <div className="card-elev p-3">
-          <h6 style={{marginTop:0}}>Recent Activity</h6>
-          <div className="small-muted">No recent activity in demo</div>
+        <nav id="nav-links">
+          <a href="#/" data-route="/" class="nav-link custom">Dashboard</a>
+          <a href="#/jobs" data-route="/jobs" class="nav-link custom">Jobs</a>
+          <a href="#/applications" data-route="/applications" class="nav-link custom">Applications</a>
+          <a href="#/reports" data-route="/reports" class="nav-link custom" id="nav-reports">Reports</a>
+        </nav>
+
+        <div style="margin-top:auto">
+          <div style="font-size:12px; opacity:0.9">Signed in as</div>
+          <div id="signed-name" style="font-weight:700">Guest</div>
+          <div class="small-muted" id="signed-role">Role: Guest</div>
+          <div class="mt-2"><button id="btn-logout" class="btn btn-light btn-sm">Logout</button></div>
         </div>
-        <div className="card-elev p-3">
-          <h6 style={{marginTop:0}}>Analytics</h6>
-          <div className="small-muted">Charts can be added (optional)</div>
+      </aside>
+
+      <!-- Main -->
+      <main class="main">
+        <div class="topbar" role="banner">
+          <div>
+            <h3 id="top-welcome" style="margin:0">Welcome</h3>
+            <div class="small-muted" id="top-role">Role: -</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="small-muted">Profile</div>
+            <div style="width:36px;height:36px;border-radius:8px;background:#eef2ff;display:flex;align-items:center;justify-content:center">U</div>
+          </div>
         </div>
-        <div className="card-elev p-3">
-          <h6 style={{marginTop:0}}>Notifications</h6>
-          <div className="small-muted">You will see notifications here</div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-function JobsPage() {
-  const { user } = useAuth();
-  const [jobs, setJobs] = useLocalStorage("uniplace_jobs", []);
-  const [form, setForm] = useState({ title:"", description:"", salary:"" });
-
-  function change(e){ setForm({...form, [e.target.name]: e.target.value}); }
-  function post(e){
-    e.preventDefault();
-    if (user.role !== "company") return alert("Only companies can post jobs");
-    const j = { id: uid("j"), companyId: user.id, ...form, createdAt: new Date().toISOString() };
-    setJobs(prev => [j, ...prev]);
-    setForm({ title:"", description:"", salary:"" });
-  }
-  function apply(id){
-    if (user.role !== "student") return alert("Only students can apply");
-    const all = JSON.parse(localStorage.getItem("uniplace_apps") || "[]");
-    if (all.find(a=>a.jobId === id && a.studentId === user.id)) return alert("Already applied");
-    const app = { id: uid("a"), jobId: id, studentId: user.id, status: "Applied", createdAt: new Date().toISOString() };
-    all.push(app);
-    localStorage.setItem("uniplace_apps", JSON.stringify(all));
-    alert("Applied successfully");
-  }
-
-  return (
-    <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <h4 style={{margin:0}}>Jobs</h4>
-        <div className="small-muted">Total: {jobs.length}</div>
-      </div>
-
-      {user.role === "company" && (
-        <form className="card-elev" onSubmit={post} style={{marginBottom:12}}>
-          <div style={{display:"flex",gap:8, marginBottom:8}}>
-            <input name="title" className="form" placeholder="Job title" value={form.title} onChange={change} required />
-            <input name="salary" className="form" placeholder="Salary/stipend" value={form.salary} onChange={change} />
-          </div>
-          <div style={{marginBottom:8}}>
-            <input name="description" className="form" placeholder="Short description" value={form.description} onChange={change} />
-          </div>
-          <div style={{display:"flex",justifyContent:"flex-end"}}>
-            <button className="btn btn-primary">Post Job</button>
-          </div>
-        </form>
-      )}
-
-      <div className="container-grid">
-        {jobs.map(j => <JobCard key={j.id} job={j} role={user.role} onApply={apply} />)}
-        {jobs.length === 0 && <div className="card-elev">No jobs yet. Companies can post jobs using the form above.</div>}
-      </div>
-    </div>
-  );
-}
-
-function ApplicationsPage() {
-  const { user } = useAuth();
-  const [apps, setApps] = useState([]);
-  useEffect(()=> {
-    setApps(JSON.parse(localStorage.getItem("uniplace_apps") || "[]"));
-  }, []);
-
-  function update(id, status) {
-    const all = JSON.parse(localStorage.getItem("uniplace_apps") || "[]");
-    const app = all.find(a=>a.id===id);
-    if (!app) return;
-    if (user.role === "company") {
-      const jobs = JSON.parse(localStorage.getItem("uniplace_jobs") || "[]");
-      const job = jobs.find(j => j.id === app.jobId);
-      if (!job || job.companyId !== user.id) return alert("Forbidden");
-    }
-    app.status = status;
-    localStorage.setItem("uniplace_apps", JSON.stringify(all));
-    setApps(all);
-  }
-
-  const visible = apps.filter(a => {
-    if (user.role === "student") return a.studentId === user.id;
-    if (user.role === "company") {
-      const jobs = JSON.parse(localStorage.getItem("uniplace_jobs") || "[]");
-      const my = jobs.filter(j=>j.companyId===user.id).map(j=>j.id);
-      return my.includes(a.jobId);
-    }
-    return true; // placement officer sees all
-  });
-
-  return (
-    <div>
-      <h4>Applications</h4>
-      {visible.length === 0 && <div className="card-elev" style={{marginTop:8}}>No applications.</div>}
-      <div style={{marginTop:8}}>
-        {visible.map(a => (
-          <div key={a.id} className="list-group-item">
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div>
-                <div><strong>ID:</strong> {a.id}</div>
-                <div><strong>Job:</strong> {a.jobId}</div>
-                <div><strong>Student:</strong> {a.studentId}</div>
-                <div className="small-muted"><strong>Status:</strong> {a.status}</div>
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                {(user.role === "company" || user.role === "placement_officer") && <button className="btn btn-primary" onClick={()=>update(a.id, "Interview")}>Set Interview</button>}
-                {(user.role === "company" || user.role === "placement_officer") && <button className="btn btn-outline" onClick={()=>update(a.id, "Placed")}>Mark Placed</button>}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ReportsPage() {
-  const jobs = JSON.parse(localStorage.getItem("uniplace_jobs") || "[]");
-  const apps = JSON.parse(localStorage.getItem("uniplace_apps") || "[]");
-  return (
-    <div>
-      <h4>Reports</h4>
-      <div className="card-elev" style={{marginTop:8}}>
-        <div><strong>Total Jobs:</strong> {jobs.length}</div>
-        <div><strong>Total Applications:</strong> {apps.length}</div>
-        <div><strong>Placed:</strong> {apps.filter(a=>a.status==="Placed").length}</div>
-      </div>
-    </div>
-  );
-}
-
-// ---------- App Root ----------
-function AppShell() {
-  const { user } = useAuth();
-  const nav = useNavigate();
-  useEffect(()=> {
-    // seed demo content first time
-    if (!localStorage.getItem("uniplace_seeded")) {
-      localStorage.setItem("uniplace_jobs", JSON.stringify([
-        { id: "j-demo-1", companyId: "u-demo-c1", title: "Software Intern", description: "3 month internship", salary: "10k/month" },
-        { id: "j-demo-2", companyId: "u-demo-c2", title: "Frontend Developer", description: "6 month contract", salary: "25k" }
-      ]));
-      localStorage.setItem("uniplace_apps", JSON.stringify([]));
-      localStorage.setItem("uniplace_seeded", "1");
-    }
-  }, []);
-
-  if (!user) return <Navigate to="/login" replace />;
-
-  return (
-    <div className="app-shell">
-      <Sidebar />
-      <main className="main" role="main">
-        <Topbar />
-        <div style={{maxWidth:1100}}>
-          <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/jobs" element={<JobsPage />} />
-            <Route path="/applications" element={<ApplicationsPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+        <div id="view-container">
+          <!-- Views will be rendered here -->
         </div>
       </main>
     </div>
-  );
-}
+  </div>
 
-export default function App() {
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/*" element={<AppShell />} />
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
-  );
-}
+  <!-- JS -->
+  <script>
+  (function(){
+    // ---------- Utilities ----------
+    function $(sel, el=document) { return el.querySelector(sel); }
+    function $all(sel, el=document) { return Array.from(el.querySelectorAll(sel)); }
+    function uid(prefix='id') { return prefix + Date.now() + Math.floor(Math.random()*900); }
+
+    // ---------- LocalStorage keys ----------
+    const LS_AUTH = 'uniplace_auth';
+    const LS_JOBS = 'uniplace_jobs';
+    const LS_APPS = 'uniplace_apps';
+    const LS_SEEDED = 'uniplace_seeded';
+
+    // ---------- DOM Elements ----------
+    const loginScreen = $('#login-screen');
+    const loginForm = $('#login-form');
+    const loginName = $('#login-name');
+    const loginEmail = $('#login-email');
+    const loginRole = $('#login-role');
+
+    const appShell = $('#app-shell');
+    const viewContainer = $('#view-container');
+    const signedName = $('#signed-name');
+    const signedRole = $('#signed-role');
+    const topWelcome = $('#top-welcome');
+    const topRole = $('#top-role');
+    const btnLogout = $('#btn-logout');
+    const navReports = $('#nav-reports');
+
+    // nav links
+    const navLinks = $all('#nav-links a');
+
+    // ---------- Data helpers ----------
+    function loadAuth(){ try { return JSON.parse(localStorage.getItem(LS_AUTH)); } catch(e){ return null; } }
+    function saveAuth(u){ localStorage.setItem(LS_AUTH, JSON.stringify(u)); }
+    function clearAuth(){ localStorage.removeItem(LS_AUTH); }
+
+    function loadJobs(){ try { return JSON.parse(localStorage.getItem(LS_JOBS)) || []; } catch(e){ return []; } }
+    function saveJobs(j){ localStorage.setItem(LS_JOBS, JSON.stringify(j)); }
+
+    function loadApps(){ try { return JSON.parse(localStorage.getItem(LS_APPS)) || []; } catch(e){ return []; } }
+    function saveApps(a){ localStorage.setItem(LS_APPS, JSON.stringify(a)); }
+
+    function seedDemoIfNeeded(){
+      if (localStorage.getItem(LS_SEEDED)) return;
+      const demoJobs = [
+        { id:'j-demo-1', companyId:'u-demo-c1', title:'Software Intern', description:'3 month internship', salary:'10k/month' },
+        { id:'j-demo-2', companyId:'u-demo-c2', title:'Frontend Developer', description:'6 month contract', salary:'25k' }
+      ];
+      saveJobs(demoJobs);
+      saveApps([]);
+      localStorage.setItem(LS_SEEDED, '1');
+    }
+
+    // ---------- Auth flow ----------
+    function showLogin(){ loginScreen.classList.remove('hidden'); appShell.classList.add('hidden'); location.hash = '#/login'; }
+    function showApp(){ loginScreen.classList.add('hidden'); appShell.classList.remove('hidden'); }
+
+    function onLoginSubmit(e){
+      e.preventDefault();
+      const email = loginEmail.value.trim();
+      if (!email) return alert('Enter email');
+      const user = { id: uid('u'), name: loginName.value.trim() || email.split('@')[0], email, role: loginRole.value };
+      saveAuth(user);
+      initializeApp();
+      navigateTo(location.hash.replace('#','') || '/');
+    }
+
+    function logout(){
+      clearAuth();
+      render();
+      showLogin();
+    }
+
+    loginForm.addEventListener('submit', onLoginSubmit);
+    btnLogout.addEventListener('click', logout);
+
+    // ---------- Routing ----------
+    function updateActiveNav(path){
+      navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('data-route') === path));
+      // show/hide reports link depending on role
+      const auth = loadAuth();
+      if (auth && auth.role === 'placement_officer') navReports.style.display = 'block'; else navReports.style.display = 'none';
+    }
+
+    function navigateTo(path){
+      if (!path) path = '/';
+      renderView(path);
+      updateActiveNav(path);
+      location.hash = path;
+    }
+
+    window.addEventListener('hashchange', ()=> {
+      const path = location.hash.replace('#','') || '/';
+      renderView(path);
+      updateActiveNav(path);
+    });
+
+    // ---------- Render views ----------
+    function render(){
+      const auth = loadAuth();
+      if (!auth) { showLogin(); return; }
+      seedDemoIfNeeded();
+      signedName.textContent = auth.name;
+      signedRole.textContent = 'Role: ' + auth.role;
+      topWelcome.textContent = 'Welcome, ' + auth.name;
+      topRole.textContent = 'Role: ' + auth.role;
+      showApp();
+      const path = location.hash.replace('#','') || '/';
+      updateActiveNav(path);
+      renderView(path);
+    }
+
+    // Dashboard view
+    function viewDashboard(){
+      const jobs = loadJobs();
+      const apps = loadApps();
+      return `
+        <div>
+          <div class="card-elev mb-3">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <h5 style="margin:0">Placement Summary</h5>
+                <div class="small-muted">Overview of campus placement activity</div>
+              </div>
+              <div style="display:flex;gap:12px">
+                <div class="kpi"><div class="small-muted">Jobs</div><div style="font-weight:700">${jobs.length}</div></div>
+                <div class="kpi"><div class="small-muted">Applications</div><div style="font-weight:700">${apps.length}</div></div>
+                <div class="kpi"><div class="small-muted">Placed</div><div style="font-weight:700">${apps.filter(a=>a.status==='Placed').length}</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+            <div class="card-elev p-3">
+              <h6>Recent Activity</h6>
+              <div class="small-muted">No recent activity in this demo</div>
+            </div>
+            <div class="card-elev p-3">
+              <h6>Analytics</h6>
+              <div class="small-muted">Charts can be added</div>
+            </div>
+            <div class="card-elev p-3">
+              <h6>Notifications</h6>
+              <div class="small-muted">You will see notifications here</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Jobs view
+    function viewJobs(){
+      const auth = loadAuth();
+      const jobs = loadJobs();
+      const jobHtml = jobs.map(j => {
+        return `
+          <div class="job-card" role="article" aria-label="${escapeHtml(j.title)}">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div style="font-weight:700">${escapeHtml(j.title)}</div>
+                <div class="small-muted">${escapeHtml(j.description || '')}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="margin-bottom:8px"><span style="background:var(--md-primary);color:#fff;padding:6px 10px;border-radius:8px;font-weight:600">${escapeHtml(j.salary || 'N/A')}</span></div>
+                ${auth.role === 'student' ? <button class="btn btn-primary btn-sm" data-action="apply" data-id="${j.id}">Apply</button> : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('\n') || '<div class="card-elev">No jobs yet.</div>';
+
+      const postForm = auth.role === 'company' ? `
+        <form id="post-job-form" class="card-elev p-3 mb-3">
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <input name="title" class="form-control" placeholder="Job title" required>
+            <input name="salary" class="form-control" placeholder="Salary / stipend">
+          </div>
+          <div style="margin-bottom:8px"><input name="description" class="form-control" placeholder="Short description"></div>
+          <div style="text-align:right"><button class="btn btn-primary">Post Job</button></div>
+        </form>
+      ` : '';
+
+      return `
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <h4 style="margin:0">Jobs</h4>
+            <div class="small-muted">Total: ${jobs.length}</div>
+          </div>
+          ${postForm}
+          <div class="container-grid">${jobHtml}</div>
+        </div>
+      `;
+    }
+
+    // Applications view
+    function viewApplications(){
+      const auth = loadAuth();
+      const apps = loadApps();
+      const jobs = loadJobs();
+      const visible = apps.filter(a => {
+        if (auth.role === 'student') return a.studentId === auth.id;
+        if (auth.role === 'company') {
+          const myJobIds = jobs.filter(j=>j.companyId === auth.id).map(j=>j.id);
+          return myJobIds.includes(a.jobId);
+        }
+        return true;
+      });
+
+      const listHtml = visible.map(a => {
+        return `
+          <div class="list-group-item-custom">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div><strong>ID:</strong> ${a.id}</div>
+                <div><strong>Job:</strong> ${a.jobId}</div>
+                <div><strong>Student:</strong> ${a.studentId}</div>
+                <div class="small-muted"><strong>Status:</strong> ${a.status}</div>
+              </div>
+              <div style="display:flex;gap:8px">
+                ${(auth.role === 'company' || auth.role === 'placement_officer') ? <button class="btn btn-primary btn-sm" data-action="set-interview" data-id="${a.id}">Interview</button><button class="btn btn-outline btn-sm" data-action="set-placed" data-id="${a.id}">Mark Placed</button> : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('') || '<div class="card-elev p-3">No applications.</div>';
+
+      return `
+        <div>
+          <h4>Applications</h4>
+          <div class="mt-2">${listHtml}</div>
+        </div>
+      `;
+    }
+
+    // Reports view
+    function viewReports(){
+      const jobs = loadJobs();
+      const apps = loadApps();
+      return `
+        <div>
+          <h4>Reports</h4>
+          <div class="card-elev p-3">
+            <div><strong>Total Jobs:</strong> ${jobs.length}</div>
+            <div><strong>Total Applications:</strong> ${apps.length}</div>
+            <div><strong>Placed:</strong> ${apps.filter(a=>a.status==='Placed').length}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // escape simple html to prevent injection in this demo
+    function escapeHtml(s){
+      if (!s) return '';
+      return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+    }
+
+    // ---------- Render and interaction handlers ----------
+    function renderView(path){
+      let html = '';
+      if (path === '/' || path === '') html = viewDashboard();
+      else if (path === '/jobs') html = viewJobs();
+      else if (path === '/applications') html = viewApplications();
+      else if (path === '/reports') html = viewReports();
+      else html = '<div>Not found</div>';
+      viewContainer.innerHTML = html;
+
+      // attach listeners after insertion
+      // job apply buttons
+      $all('[data-action="apply"]').forEach(btn => {
+        btn.addEventListener('click', function(){
+          const jobId = this.getAttribute('data-id');
+          const auth = loadAuth();
+          if (!auth || auth.role !== 'student') return alert('Only students can apply');
+          const apps = loadApps();
+          if (apps.find(a=>a.jobId===jobId && a.studentId===auth.id)) return alert('Already applied');
+          apps.push({ id: uid('a'), jobId, studentId: auth.id, status: 'Applied', createdAt: new Date().toISOString() });
+          saveApps(apps);
+          alert('Applied successfully');
+          navigateTo('/applications');
+        });
+      });
+
+      // post job form
+      const postForm = $('#post-job-form');
+      if (postForm){
+        postForm.addEventListener('submit', function(e){
+          e.preventDefault();
+          const auth = loadAuth();
+          if (!auth || auth.role !== 'company') return alert('Only companies can post jobs');
+          const form = e.target;
+          const title = form.title.value.trim();
+          const salary = form.salary.value.trim();
+          const description = form.description.value.trim();
+          if (!title) return alert('Enter title');
+          const jobs = loadJobs();
+          const j = { id: uid('j'), companyId: auth.id, title, salary, description, createdAt: new Date().toISOString() };
+          jobs.unshift(j);
+          saveJobs(jobs);
+          alert('Job posted');
+          renderView('/jobs'); // re-render
+        });
+      }
+
+      // application actions (interview / placed)
+      $all('[data-action="set-interview"]').forEach(b => {
+        b.addEventListener('click', function(){
+          const id = this.getAttribute('data-id');
+          updateAppStatus(id, 'Interview');
+        });
+      });
+      $all('[data-action="set-placed"]').forEach(b => {
+        b.addEventListener('click', function(){
+          const id = this.getAttribute('data-id');
+          updateAppStatus(id, 'Placed');
+        });
+      });
+    }
+
+    function updateAppStatus(id, status){
+      const auth = loadAuth();
+      if (!auth) return alert('Not authorized');
+      const apps = loadApps();
+      const app = apps.find(a=>a.id===id);
+      if (!app) return alert('Not found');
+      if (auth.role === 'company'){
+        const jobs = loadJobs();
+        const job = jobs.find(j=>j.id===app.jobId);
+        if (!job || job.companyId !== auth.id) return alert('Forbidden');
+      }
+      app.status = status;
+      saveApps(apps);
+      alert('Status updated');
+      renderView('/applications');
+    }
+
+    // ---------- Navigation helper ----------
+    function navigateTo(path){
+      updateActiveNav(path);
+      renderView(path);
+      location.hash = path;
+    }
+
+    function updateActiveNav(path){
+      navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('data-route') === path));
+      const auth = loadAuth();
+      if (auth && auth.role === 'placement_officer') navReports.style.display = 'block'; else navReports.style.display = 'none';
+    }
+
+    // attach click to nav links (supports SPA behaviour)
+    navLinks.forEach(a => {
+      a.addEventListener('click', function(ev){
+        ev.preventDefault();
+        const path = this.getAttribute('data-route') || '/';
+        navigateTo(path);
+      });
+    });
+
+    // ---------- Initial setup ----------
+    function initializeApp(){
+      // if no auth found, show login
+      const auth = loadAuth();
+      if (!auth) { showLogin(); return; }
+      seedDemoIfNeeded();
+      showApp();
+      signedName.textContent = auth.name;
+      signedRole.textContent = 'Role: ' + auth.role;
+      topWelcome.textContent = 'Welcome, ' + auth.name;
+      topRole.textContent = 'Role: ' + auth.role;
+      // ensure reports visibility
+      if (auth.role === 'placement_officer') navReports.style.display = 'block'; else navReports.style.display = 'none';
+      // initial route
+      const path = location.hash.replace('#','') || '/';
+      navigateTo(path);
+    }
+
+    // on load: if auth exists, show app; else login
+    document.addEventListener('DOMContentLoaded', function(){
+      const auth = loadAuth();
+      if (!auth) showLogin();
+      else initializeApp();
+    });
+
+    // expose render for external usage (not required)
+    window.uniplace = { render: render };
+
+  })();
+  </script>
+
+  <!-- Bootstrap JS bundle (optional) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
